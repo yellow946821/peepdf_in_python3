@@ -1,0 +1,566 @@
+// peepdf comment: Javascript code located in object 37 (version 1)
+
+g_currentRenderMode = "solid";
+g_animateGeometry = false
+g_animateCamera = false
+g_loopAnimation = true
+g_flashLightOn = false
+g_flashLightIntensity = 0.444444
+/*--------------------------------------------------------------------------------------+
+|
+|    $RCSfile: pdfu3d.js,v $
+|   $Revision: 1.1.2.10 $
+|       $Date: 2005/01/10 15:19:22 $
+|     $Author: RayBentley $
+|
+| Copyright (c) 1985-2001;  Bentley Systems, Inc., 685 Stockton Drive,
+|                      Exton PA, 19341-0678, USA.  All Rights Reserved.
+|
+| This program is confidential, proprietary and unpublished property of Bentley Systems
+| Inc. It may NOT be copied in part or in whole on any medium, either electronic or
+| printed, without the express written consent of Bentley Systems, Inc.
+|
++--------------------------------------------------------------------------------------*/
+g_selectMode = "LevelMode"; // Select by level.
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      11/04
+* Menu Items  IDs asnd Labels.
++---------------+---------------+---------------+---------------+---------------+------*/
+g_sceneDisplayIds = new Array();
+g_sceneDisplayLabels = new Array();
+
+g_selectDisplayIds = new Array();
+g_selectDisplayLabels = new Array();
+
+g_selectModeIds = new Array();
+g_selectModeLabels = new Array();
+
+function pushNewSceneDisplay(id, label) {
+    g_sceneDisplayIds.push(id);
+    g_sceneDisplayLabels.push(label);
+}
+
+function pushNewSelectDisplay(id, label) {
+    g_selectDisplayIds.push(id);
+    g_selectDisplayLabels.push(label);
+}
+
+function pushNewSelectMode(id, label) {
+    g_selectModeIds.push(id);
+    g_selectModeLabels.push(label);
+}
+
+function addSeperator(id) {
+    runtime.addCustomMenuItem(id, "_____________________________", "default", false)
+};
+
+pushNewSceneDisplay("Scene_solid", "Scene Shaded");
+pushNewSceneDisplay("Scene_illustration", "Scene Illustration");
+pushNewSceneDisplay("Scene_CAD illustration", "Scene Shaded Illustration");
+pushNewSceneDisplay("Scene_transparent", "Scene Transparent");
+
+pushNewSelectDisplay("Select_solid", "Select Shaded");
+pushNewSelectDisplay("Select_illustration", "Select Illustration");
+pushNewSelectDisplay("Select_CAD Illustration", "Select Shaded Illustration");
+pushNewSelectDisplay("Select_transparent", "Select Transparent");
+
+pushNewSelectMode("ElementMode", "Select Element");
+pushNewSelectMode("LevelMode", "Select By Level");
+pushNewSelectMode("MaterialMode", "Select By Material");
+pushNewSelectMode("ModelMode", "Select By Model");
+
+/*  Initial rendermode. */
+for (i = 0; i < scene.meshes.count; i++)
+scene.meshes.getByIndex(i).renderMode = g_currentRenderMode;
+
+g_stopped = false; /*---------------------------------------f------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      11/04
+* Animation Handler
++---------------+---------------+---------------+---------------+---------------+------*/
+if (g_animateGeometry || g_animateCamera) {
+    theCamera = scene.cameras.getByIndex(0);
+
+    animation = scene.animations.getByIndex(0);
+    animation.speed = 1;
+    animation.oneFrame = 1 / animation.framesPerSecond;
+    animation.forward = true;
+
+
+    animation.init = function() {
+        s_timeDelta = 1.0;
+        s_speedRatio = 1.1;
+
+        scene.activateAnimation(this);
+
+        if (g_animateCamera) this.camera = scene.cameras.getByIndex(1);
+
+
+        /*---------------------------------------------------------------------------------**/
+/**
+        * @bsimethod                                                    RayBentley      12/04
+        +---------------+---------------+---------------+---------------+---------------+------*/
+        function incrementFrame() {
+            animation.currentTime += animation.oneFrame * animation.speed * s_timeDelta;
+            if (animation.currentTime > animation.endTime) animation.currentTime = g_loopAnimation ? animation.startTime : animation.endTime;
+        }
+
+        /*---------------------------------------------------------------------------------**/
+/**
+        * @bsimethod                                                    RayBentley      12/04
+        +---------------+---------------+---------------+---------------+---------------+------*/
+        function decrementFrame() {
+            animation.currentTime -= animation.oneFrame * animation.speed * s_timeDelta;
+
+            if (animation.currentTime < animation.startTime) animation.currentTime = g_loopAnimation ? animation.endTime : animation.startTime;
+
+        }
+
+        /*---------------------------------------------------------------------------------**/
+/**
+        * @bsimethod    Timer                                           RayBentley      12/04
+        +---------------+---------------+---------------+---------------+---------------+------*/
+        this.timer = new TimeEventHandler();
+        this.timer.owner = this;
+
+        this.timer.onEvent = function(event) {
+            if (!g_stopped) animation.forward ? incrementFrame() : decrementFrame();
+
+            if (g_animateCamera) {
+                theCamera.position.set(this.owner.camera.position);
+                theCamera.targetPosition.set(this.owner.camera.targetPosition);
+                theCamera.fov = this.owner.camera.fov;
+                theCamera.projectionType = this.owner.camera.projectionType;
+            }
+        }
+        runtime.addEventHandler(this.timer);
+
+        /*---------------------------------------------------------------------------------**/
+/**
+        * @bsimethod    KeyEventHandler                                           RayBentley      12/04
+        +---------------+---------------+---------------+---------------+---------------+------*/
+        this.keyEventHandler = new KeyEventHandler()
+        this.keyEventHandler.onEvent = function(event) {
+            switch (event.characterCode) {
+            case 1:
+                // End
+                animation.currentTime = animation.endTime;
+                break;
+
+            case 4:
+                // Home.
+                animation.currentTime = 0;
+                break;
+
+            case 8:
+                // Backspace
+                animation.forward = !animation.forward;
+                break;
+
+            case 27:
+                // Escape.
+                g_stopped = !g_stopped;
+                break;
+
+            case 28:
+                if (g_stopped) decrementFrame();
+                else s_timeDelta /= s_speedRatio;
+
+                break;
+
+            case 29:
+                if (g_stopped) incrementFrame();
+                else s_timeDelta *= s_speedRatio;
+
+                break;
+            }
+        }
+        runtime.addEventHandler(this.keyEventHandler);
+
+    }
+    animation.init();
+}
+
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      11/04
+* Flashlight Handler
++---------------+---------------+---------------+---------------+---------------+------*/
+flashLight = scene.createLight();
+flashLight.brightness = (g_flashLightOn ? g_flashLightIntensity : 0.0);
+flashLight.type = "infinite"
+
+function synchFlashlight() {
+    theCamera = scene.cameras.getByIndex(0);
+
+    flashLight.direction.set(theCamera.targetPosition);
+    flashLight.direction.subtractInPlace(theCamera.position);
+    flashLight.direction.normalize();
+}
+
+
+flashlightRenderEventHandler = new RenderEventHandler()
+flashlightRenderEventHandler.onEvent = function(event) {
+    synchFlashlight();
+}
+
+flashlightMouseEventHandler = new MouseEventHandler();
+flashlightMouseEventHandler.reportAllTargets = false;
+flashlightMouseEventHandler.onMouseMove = true;
+
+flashlightMouseEventHandler.onEvent = function(event) {
+    synchFlashlight();
+}
+
+runtime.addEventHandler(flashlightMouseEventHandler);
+runtime.addEventHandler(flashlightRenderEventHandler);
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      11/04
+* Tools
++---------------+---------------+---------------+---------------+---------------+------*/
+s_selectToolID = "select";
+s_hideToolID = "hide";
+s_showToolID = "show";
+s_transparentToolID = "transparent";
+s_isolateToolID = "isolate";
+
+g_selected = new Array();
+g_selectRenderMode = "transparent";
+g_nodesHidden = false;
+
+runtime.addCustomToolButton(s_selectToolID, "Select", "tool button");
+runtime.addCustomToolButton(s_hideToolID, "Hide", "push button");
+runtime.addCustomToolButton(s_showToolID, "Show", "push button");
+runtime.addCustomToolButton(s_isolateToolID, "Isolate", "push button");
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function synchMenuItems() {
+    if (g_selected.length > 0) {
+        runtime.enableTool(s_hideToolID);
+        runtime.enableTool(s_isolateToolID);
+    } else {
+        runtime.disableTool(s_hideToolID);
+        runtime.disableTool(s_isolateToolID);
+    }
+
+    if (g_nodesHidden) runtime.enableTool(s_showToolID);
+    else runtime.enableTool(s_showToolID);
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function findSelected(findObject) {
+    for (i = 0; i < g_selected.length; i++)
+    if (g_selected[i] == findObject) return i;
+
+    return -1;
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function levelOrModelStringFromNodeName(name) {
+    idIndex = name.lastIndexOf("#");
+    if ("LevelMode" == g_selectMode) {
+        if (-1 != idIndex) return name.substr(0, idIndex);
+    } else {
+        refIndex = name.indexOf("R");
+        if (-1 != refIndex) return name.substring(refIndex, idIndex);
+        else return "";
+    }
+
+    return null;
+}
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function addSelected(addObject) {
+    if ("ElementMode" == g_selectMode) {
+        addObject.renderMode = g_selectRenderMode;
+        g_selected.push(addObject);
+    } else if ("MaterialMode" == g_selectMode) {
+        materialToSelect = addObject.material.name;
+        for (j = 0; j < scene.meshes.count; j++) {
+            thisMesh = scene.meshes.getByIndex(j);
+            if (null != thisMesh && null != thisMesh.material && thisMesh.material.name == materialToSelect) {
+                thisMesh.renderMode = g_selectRenderMode;
+                g_selected.push(thisMesh);
+            }
+        }
+    } else {
+        if (null != (stringToSelect = levelOrModelStringFromNodeName(addObject.name))) {
+            for (j = 0; j < scene.meshes.count; j++) {
+                thisMesh = scene.meshes.getByIndex(j);
+                if (null != thisMesh && levelOrModelStringFromNodeName(thisMesh.name) == stringToSelect) {
+                    thisMesh.renderMode = g_selectRenderMode;
+                    g_selected.push(thisMesh);
+                }
+            }
+        }
+    }
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function dropSelected(dropIndex) {
+    if ("ElementMode" == g_selectMode) {
+        g_selected[dropIndex].renderMode = g_currentRenderMode;
+        g_selected.splice(dropIndex, 1);
+    } else if ("MaterialMode" == g_selectMode) {
+        materialToSelect = g_selected[i].material.name;
+        for (i = 0; i < g_selected.length;) {
+            if (g_selected[i].materialName == materialToSelect) {
+                g_selected[i].renderMode = g_currentRenderMode;
+                g_selected.splice(i, 1);
+            } else {
+                i++;
+            }
+        }
+    } else {
+        if (null != (levelToSelect = levelOrModelStringFromNodeName(g_selected[i].name))) {
+            for (i = 0; i < g_selected.length;) {
+                if (levelOrModelStringFromNodeName(g_selected[i].name) == levelToSelect) {
+                    g_selected[i].renderMode = g_currentRenderMode;
+                    g_selected.splice(i, 1);
+                } else {
+                    i++;
+                }
+            }
+        }
+    }
+}
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function emptySelection() {
+    for (i = 0; i < g_selected.length; i++)
+    g_selected[i].renderMode = g_currentRenderMode;
+
+    while (0 != g_selected.length)
+    g_selected.pop();
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function selectTool(mouseEvent) {
+    if (!mouseEvent.shiftKeyDown) emptySelection()
+
+    if (mouseEvent.hits.length > 0) {
+        hitObject = mouseEvent.hits[0].target
+
+        if (mouseEvent.shiftKeyDown) {
+            if ((selectedIndex = findSelected(hitObject)) < 0) addSelected(hitObject);
+            else dropSelected(selectedIndex);
+        } else {
+            addSelected(hitObject);
+        }
+    }
+    synchMenuItems();
+}
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function hideTool() {
+    for (i = 0; i < g_selected.length; i++)
+    g_selected[i].visible = false;
+
+    emptySelection();
+    scene.update();
+    if (!g_nodesHidden) g_nodesHidden = true;
+
+    synchMenuItems();
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function isolateTool() {
+    for (i = 0; i < scene.meshes.count; i++)
+    scene.meshes.getByIndex(i).visible = false;
+
+    for (i = 0; i < g_selected.length; i++)
+    g_selected[i].visible = true;
+
+    scene.update();
+    g_nodesHidden = true;
+    synchMenuItems();
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function showAllTool() {
+    if (g_nodesHidden) {
+        for (i = 0; i < scene.meshes.count; i++)
+        scene.meshes.getByIndex(i).visible = true;
+
+        g_nodesHidden = false;
+    }
+    synchMenuItems();
+}
+
+
+
+toolMouseEventHandler = new MouseEventHandler();
+toolMouseEventHandler.reportAllTargets = false;
+toolMouseEventHandler.onMouseMove = false;
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+toolMouseEventHandler.onEvent = function(event) {
+    if (event.isMouseDown) {
+        if (event.currentTool == s_selectToolID) selectTool(event);
+    }
+}
+
+g_currentTool = "rotate";
+toolEventHandler = new ToolEventHandler(); /*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+toolEventHandler.onEvent = function(event) {
+    if (event.toolName == s_hideToolID) {
+        hideTool();
+        runtime.setCurrentTool(g_currentTool);
+    } else if (event.toolName == s_showToolID) {
+        showAllTool();
+        runtime.setCurrentTool(g_currentTool);
+    } else if (event.toolName == s_isolateToolID) {
+        isolateTool();
+        runtime.setCurrentTool(g_currentTool);
+    } else {
+        g_currentTool = event.toolName;
+    }
+}
+
+
+
+
+runtime.addEventHandler(toolMouseEventHandler);
+runtime.addEventHandler(toolEventHandler);
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function addMenuItems(toolIds, toolLabels, currentToolId) {
+    for (i = 0; i < toolIds.length; i++)
+    runtime.addCustomMenuItem(toolIds[i], (currentToolId == toolIds[i] ? "X" : " ") + " " + " " + toolLabels[i], "default", false);
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function clearMenuItems(toolIds) {
+    i = 0;
+    for (; i < toolIds.length; i++)
+    runtime.removeCustomMenuItem(toolIds[i]);
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function addAllMenuItems() {
+    addMenuItems(g_sceneDisplayIds, g_sceneDisplayLabels, "Scene_" + g_currentRenderMode);
+    addSeperator("sep1");
+    addMenuItems(g_selectDisplayIds, g_selectDisplayLabels, "Select_" + g_selectRenderMode);
+    addSeperator("sep2");
+    addMenuItems(g_selectModeIds, g_selectModeLabels, g_selectMode);
+    addSeperator("sep3");
+    runtime.addCustomMenuItem("flashlight", "Flashlight", "checked", g_flashLightOn); /*    runtime.addCustomMenuItem ("Animate */
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function clearAllMenuItems() {
+    clearMenuItems(g_sceneDisplayIds);
+    runtime.removeCustomMenuItem("sep1");
+    clearMenuItems(g_selectDisplayIds);
+    runtime.removeCustomMenuItem("sep2");
+    clearMenuItems(g_selectModeIds);
+    runtime.removeCustomMenuItem("sep3");
+    runtime.removeCustomMenuItem("flashlight");
+}
+
+/*---------------------------------------------------------------------------------**/
+/**
+* @bsimethod                                                    RayBentley      12/04
++---------------+---------------+---------------+---------------+---------------+------*/
+function synchMenuItems() {
+    clearAllMenuItems();
+    addAllMenuItems();
+}
+
+addAllMenuItems();
+myMenuEventHandler = new MenuEventHandler();
+
+myMenuEventHandler.onEvent = function(event) {
+    if (0 == event.menuItemName.indexOf("Scene")) {
+        g_currentRenderMode = event.menuItemName.substr(6);
+        for (i = 0; i < scene.meshes.count; i++)
+        scene.meshes.getByIndex(i).renderMode = g_currentRenderMode;
+
+        for (i = 0; i < g_selected.length; i++)
+        g_selected[i].renderMode = g_selectRenderMode;
+
+        scene.update();
+        synchMenuItems();
+    } else if (0 == event.menuItemName.indexOf("Select")) {
+        g_selectRenderMode = event.menuItemName.substr(7);
+        for (i = 0; i < g_selected.length; i++)
+        g_selected[i].renderMode = g_selectRenderMode;
+
+        synchMenuItems();
+        scene.update();
+    } else if (event.menuItemName == "flashlight") {
+        g_flashLightOn = !g_flashLightOn;
+        flashLight.brightness = (g_flashLightOn ? g_flashLightIntensity : 0.0);
+        scene.update();
+    } else {
+        g_selectMode = event.menuItemName;
+    }
+}
+runtime.addEventHandler(myMenuEventHandler);
+
+
+/*---------------------------------------------------------------------------------**/
+/**
+* User Supplied JavaScript.
+* Refer to Adobe "3D in PDF - JavaScript API for details on using JavaScript to customize
+* embedded 3D Annotations.
++---------------+---------------+---------------+---------------+---------------+------*/
+
